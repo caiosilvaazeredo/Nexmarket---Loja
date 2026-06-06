@@ -1,0 +1,215 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return false; } // No admin feature yet
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidSupermarket(data) {
+      return data.keys().hasAll(['name', 'ownerId', 'themeColor', 'logoUrl', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 6
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.ownerId is string && data.ownerId == request.auth.uid
+        && data.themeColor is string && data.themeColor.size() <= 20
+        && data.logoUrl is string && data.logoUrl.size() <= 800000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isSupermarketOwner(supermarketId) {
+      return exists(/databases/$(database)/documents/supermarkets/$(supermarketId))
+        && get(/databases/$(database)/documents/supermarkets/$(supermarketId)).data.ownerId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      
+      function isValidUser(data) {
+        return data.keys().hasAll(['name', 'email', 'contact', 'networkName', 'cnpj', 'role', 'createdAt', 'updatedAt'])
+          && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+          && data.email is string && data.email.size() > 0 && data.email.size() <= 150
+          && data.contact is string && data.contact.size() <= 100
+          && data.networkName is string && data.networkName.size() <= 100
+          && data.cnpj is string && data.cnpj.size() <= 100
+          && data.role is string && data.role.size() <= 50
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp;
+      }
+
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'contact', 'networkName', 'cnpj', 'updatedAt'])
+        && incoming().updatedAt == request.time;
+        
+      allow delete: if false;
+    }
+
+    match /supermarkets/{supermarketId} {
+      allow read: if true; // Customers can view supermarkets
+      allow create: if isSignedIn()
+        && isValidId(supermarketId)
+        && isValidSupermarket(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      
+      allow update: if isSignedIn()
+        && existing().ownerId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'themeColor', 'logoUrl', 'updatedAt'])
+        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
+        && incoming().themeColor is string && incoming().themeColor.size() <= 20
+        && incoming().logoUrl is string && incoming().logoUrl.size() <= 800000
+        && incoming().updatedAt == request.time;
+      
+      allow delete: if isSignedIn() && existing().ownerId == request.auth.uid;
+
+      match /gondolas/{gondolaId} {
+        allow read: if true;
+        
+        function isValidGondola(data) {
+          return data.keys().hasAll(['supermarketId', 'name', 'iconName', 'level', 'colorTheme', 'order', 'createdAt', 'updatedAt'])
+            && data.keys().size() == 8
+            && data.supermarketId is string && data.supermarketId == supermarketId
+            && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+            && data.iconName is string && data.iconName.size() <= 50
+            && data.colorTheme is string && data.colorTheme.size() <= 20
+            && data.level is number && data.level >= 1
+            && data.order is number
+            && data.createdAt is timestamp
+            && data.updatedAt is timestamp;
+        }
+
+        allow create: if isSignedIn()
+          && isValidId(gondolaId)
+          && isSupermarketOwner(supermarketId)
+          && isValidGondola(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        
+        allow update: if isSignedIn()
+          && isSupermarketOwner(supermarketId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'iconName', 'level', 'colorTheme', 'order', 'updatedAt'])
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
+          && incoming().iconName is string && incoming().iconName.size() <= 50
+          && incoming().colorTheme is string && incoming().colorTheme.size() <= 20
+          && incoming().level is number && incoming().level >= 1
+          && incoming().order is number
+          && incoming().updatedAt == request.time;
+        
+        allow delete: if isSignedIn() && isSupermarketOwner(supermarketId);
+      }
+
+      match /products/{productId} {
+        allow read: if true;
+
+        function isValidProduct(data) {
+          return data.keys().hasAll(['supermarketId', 'gondolaId', 'name', 'price', 'imageUrl', 'order', 'active', 'ean', 'createdAt', 'updatedAt'])
+            && data.supermarketId is string && data.supermarketId == supermarketId
+            && data.gondolaId is string && data.gondolaId.size() > 0 && data.gondolaId.size() <= 128
+            && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+            && data.price is number && data.price >= 0
+            && data.imageUrl is string && data.imageUrl.size() <= 800000
+            && data.order is number
+            && data.active is bool
+            && data.ean is string && data.ean.size() <= 100
+            && data.createdAt is timestamp
+            && data.updatedAt is timestamp;
+        }
+
+        allow create: if isSignedIn()
+          && isValidId(productId)
+          && isSupermarketOwner(supermarketId)
+          && exists(/databases/$(database)/documents/supermarkets/$(supermarketId)/gondolas/$(incoming().gondolaId))
+          && isValidProduct(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        
+        allow update: if isSignedIn()
+          && isSupermarketOwner(supermarketId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'price', 'imageUrl', 'gondolaId', 'order', 'active', 'ean', 'inPromo', 'promoPrice', 'promoEndsAt', 'lowestPrice30Days', 'salesCount', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+        
+        allow delete: if isSignedIn() && isSupermarketOwner(supermarketId);
+      }
+
+      match /orders/{orderId} {
+        allow read: if true;
+        
+        function isValidOrder(data) {
+          return data.keys().hasAll(['supermarketId', 'customerId', 'status', 'items', 'total', 'createdAt', 'updatedAt'])
+            && data.supermarketId is string && data.supermarketId == supermarketId
+            && data.customerId is string && data.customerId.size() <= 128
+            && data.status is string && data.status.size() <= 50
+            && data.items is list && data.items.size() <= 200
+            && data.total is number && data.total >= 0
+            && data.createdAt is timestamp
+            && data.updatedAt is timestamp;
+        }
+
+        allow create: if true 
+          && isValidOrder(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+          
+        allow update: if true // Anyone can update order status for now
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'items', 'total', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+          
+        allow delete: if isSignedIn() && isSupermarketOwner(supermarketId);
+      }
+
+      match /promotions/{promoId} {
+        allow read: if true;
+        allow write: if isSignedIn() && isSupermarketOwner(supermarketId);
+      }
+
+      match /deliveryConfig/{docId} {
+        allow read: if true;
+        allow write: if isSignedIn() && isSupermarketOwner(supermarketId);
+      }
+
+      match /settings/{docId} {
+        allow read: if true;
+        allow write: if isSignedIn() && isSupermarketOwner(supermarketId);
+      }
+
+      match /staff/{docId} {
+        allow read: if true;
+        allow write: if isSignedIn() && isSupermarketOwner(supermarketId);
+      }
+
+      match /storefront/{docId} {
+        allow read: if true;
+        
+        function isValidStorefrontConfig(data) {
+          return data.keys().hasAll(['supermarketId', 'configJson', 'updatedAt'])
+            && data.supermarketId is string && data.supermarketId == supermarketId
+            && data.configJson is string && data.configJson.size() <= 100000
+            && data.updatedAt is timestamp;
+        }
+        
+        allow create: if isSignedIn() && isSupermarketOwner(supermarketId)
+          && (docId == 'config' || docId == 'appConfig')
+          && isValidStorefrontConfig(incoming())
+          && incoming().updatedAt == request.time;
+          
+        allow update: if isSignedIn() && isSupermarketOwner(supermarketId)
+          && (docId == 'config' || docId == 'appConfig')
+          && incoming().diff(existing()).affectedKeys().hasOnly(['configJson', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+      }
+    }
+  }
+}

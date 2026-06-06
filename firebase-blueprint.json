@@ -1,0 +1,139 @@
+{
+  "entities": {
+    "Supermarket": {
+      "title": "Supermarket",
+      "description": "A supermarket tenant on the platform.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "themeColor": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["name", "ownerId", "themeColor", "createdAt", "updatedAt"]
+    },
+    "Gondola": {
+      "title": "Gondola",
+      "description": "A customizable, gamified category or shelf.",
+      "type": "object",
+      "properties": {
+        "supermarketId": { "type": "string" },
+        "name": { "type": "string" },
+        "iconName": { "type": "string" },
+        "level": { "type": "number", "description": "Gamification level for this gondola" },
+        "colorTheme": { "type": "string" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["supermarketId", "name", "iconName", "level", "colorTheme", "order", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "A product placed in a gondola.",
+      "type": "object",
+      "properties": {
+        "supermarketId": { "type": "string" },
+        "gondolaId": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "order": { "type": "number" },
+        "ean": { "type": "string" },
+        "active": { "type": "boolean" },
+        "inPromo": { "type": "boolean" },
+        "promoPrice": { "type": "number" },
+        "promoEndsAt": { "type": "string", "format": "timestamp" },
+        "lowestPrice30Days": { "type": "number" },
+        "salesCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["supermarketId", "gondolaId", "name", "price", "order", "active", "createdAt", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A customer order.",
+      "type": "object",
+      "properties": {
+        "supermarketId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "picking", "waiting_substitution", "ready", "delivered"] },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "name": { "type": "string" },
+              "quantity": { "type": "number" },
+              "price": { "type": "number" },
+              "separated": { "type": "boolean" },
+              "missing": { "type": "boolean" },
+              "substitutedBy": { "type": "string" }
+            }
+          }
+        },
+        "total": { "type": "number" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["supermarketId", "customerId", "status", "items", "total", "createdAt", "updatedAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Store user profile data.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "contact": { "type": "string" },
+        "networkName": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "role": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["name", "email", "role", "createdAt", "updatedAt"]
+    },
+    "StorefrontConfig": {
+      "title": "StorefrontConfig",
+      "description": "Store JSON configuration for the public storefront design.",
+      "type": "object",
+      "properties": {
+        "supermarketId": { "type": "string" },
+        "configJson": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["supermarketId", "configJson", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores user profiles."
+    },
+    "/supermarkets/{supermarketId}": {
+      "schema": "Supermarket",
+      "description": "Stores supermarket settings."
+    },
+    "/supermarkets/{supermarketId}/storefront/config": {
+      "schema": "StorefrontConfig",
+      "description": "Stores custom design configuration for the storefront."
+    },
+    "/supermarkets/{supermarketId}/gondolas/{gondolaId}": {
+      "schema": "Gondola",
+      "description": "Stores gondolas (categories) for a supermarket."
+    },
+    "/supermarkets/{supermarketId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Stores products for a supermarket."
+    },
+    "/supermarkets/{supermarketId}/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Stores customer orders for a supermarket."
+    }
+  }
+}
