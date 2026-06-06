@@ -3,14 +3,14 @@ import { collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serve
 import { ref, uploadBytesResumable, getDownloadURL, UploadTask } from 'firebase/storage';
 import { db, handleFirestoreError, OperationType, auth, storage } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Store, Layers, Package, Trash2, Edit3, GripVertical, Search, X, Upload, ShoppingCart, ListChecks, Tags, Smartphone, LogOut, HelpCircle, Truck, BarChart3, PackageX, Settings, Users, Megaphone, Star, Menu } from 'lucide-react';
+import { ArrowLeft, Plus, Store, Layers, Package, Trash2, Edit3, GripVertical, Search, X, Upload, ShoppingCart, ListChecks, Tags, Smartphone, LogOut, HelpCircle, Truck, BarChart3, PackageX, Settings, Users, Megaphone, Star, Menu, Navigation } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { GONDOLA_ICONS } from '../lib/gondolaIcons';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-type ManagerView = 'home' | 'shelves' | 'catalog' | 'orders' | 'gondolaApp' | 'promotions' | 'delivery' | 'analytics' | 'inventory' | 'settings' | 'staff' | 'marketing' | 'reviews';
+type ManagerView = 'home' | 'shelves' | 'catalog' | 'orders' | 'gondolaApp' | 'promotions' | 'delivery' | 'tracking' | 'analytics' | 'inventory' | 'settings' | 'staff' | 'marketing' | 'reviews';
 
 import CatalogManager from '../components/manager/CatalogManager';
 import OrderPicker from '../components/manager/OrderPicker';
@@ -18,6 +18,7 @@ import StorefrontBuilder from '../components/manager/StorefrontBuilder';
 import GondolaAppBuilder from '../components/manager/GondolaAppBuilder';
 import PromotionsManager from '../components/manager/PromotionsManager';
 import DeliveryConfigManager from '../components/manager/DeliveryConfigManager';
+import DeliveryTracking from '../components/manager/DeliveryTracking';
 import AnalyticsManager from '../components/manager/AnalyticsManager';
 import InventoryManager from '../components/manager/InventoryManager';
 import StoreSettingsManager from '../components/manager/StoreSettingsManager';
@@ -542,8 +543,14 @@ export default function ManagerDashboard() {
                         >
                             <Truck className="w-5 h-5"/> Configurar Entrega
                         </button>
-                        <button 
-                            onClick={() => { setManagerView('analytics'); setIsSidebarOpen(false); }} 
+                        <button
+                            onClick={() => { setManagerView('tracking'); setIsSidebarOpen(false); }}
+                            className={`w-full flex items-center gap-3 p-3 rounded-xl font-bold transition-all ${managerView === 'tracking' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                            <Navigation className="w-5 h-5"/> Rastrear Entregas
+                        </button>
+                        <button
+                            onClick={() => { setManagerView('analytics'); setIsSidebarOpen(false); }}
                             className={`w-full flex items-center gap-3 p-3 rounded-xl font-bold transition-all ${managerView === 'analytics' ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
                             <BarChart3 className="w-5 h-5"/> Relatórios
@@ -966,7 +973,13 @@ export default function ManagerDashboard() {
                         <DeliveryConfigManager supermarketId={selectedSmId} />
                     </div>
                 )}
-                
+
+                {managerView === 'tracking' && (
+                    <div className="p-8 max-w-[1400px] w-full mx-auto">
+                        <DeliveryTracking supermarketId={selectedSmId} />
+                    </div>
+                )}
+
                 {managerView === 'analytics' && (
                     <div className="p-8 max-w-[1400px] w-full mx-auto">
                         <AnalyticsManager supermarketId={selectedSmId} />

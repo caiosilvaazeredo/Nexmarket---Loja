@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Clock, CreditCard, Save } from 'lucide-react';
+import { Settings, Clock, CreditCard, Save, MapPin, Navigation } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
@@ -41,6 +41,11 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
     vouchers: [] as string[]
   });
 
+  // Store address + geo, consumed by the entregador app to route pickups.
+  const [storeLocation, setStoreLocation] = useState<{ address: string; lat: number | null; lng: number | null }>({
+    address: '', lat: null, lng: null,
+  });
+
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -53,6 +58,7 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
           const data = docSnap.data();
           if (data.openingHours) setOpeningHours(data.openingHours);
           if (data.paymentMethods) setPaymentMethods(data.paymentMethods);
+          if (data.storeLocation) setStoreLocation({ address: '', lat: null, lng: null, ...data.storeLocation });
         }
       } catch (error) {
          handleFirestoreError(error, OperationType.GET, `supermarkets/${supermarketId}/settings/storeInfo`);
@@ -69,6 +75,7 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
       await setDoc(doc(db, `supermarkets/${supermarketId}/settings/storeInfo`), {
         openingHours,
         paymentMethods,
+        storeLocation,
         updatedAt: serverTimestamp()
       }, { merge: true });
       alert('Configurações salvas com sucesso!');
@@ -114,6 +121,26 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
       </div>
       
       <div className="p-6 space-y-8">
+         <div className="p-6 border border-slate-200 rounded-2xl bg-slate-50/50">
+            <h4 className="font-bold flex items-center gap-2 mb-4 text-lg"><MapPin className="w-6 h-6 text-[#58CC02]"/> Endereço da Loja</h4>
+            <p className="text-slate-500 text-sm mb-4">Usado pelo app do entregador para guiar a coleta dos pedidos.</p>
+            <input
+              className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl focus:border-[#58CC02] outline-none font-medium text-slate-700 transition-colors"
+              placeholder="Endereço completo (rua, número, bairro, cidade)"
+              value={storeLocation.address}
+              onChange={e => setStoreLocation({ ...storeLocation, address: e.target.value })}
+            />
+            <button type="button" onClick={() => {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => setStoreLocation(s => ({ ...s, lat: pos.coords.latitude, lng: pos.coords.longitude })),
+                        () => alert('Não foi possível obter a localização.')
+                    );
+                } else { alert('Geolocalização não suportada neste navegador.'); }
+            }} className={`mt-3 text-sm font-bold flex items-center gap-1 ${storeLocation.lat ? 'text-[#58CC02]' : 'text-slate-500'}`}>
+                <Navigation className="w-4 h-4"/> {storeLocation.lat ? `Coordenadas salvas (${storeLocation.lat.toFixed(4)}, ${storeLocation.lng?.toFixed(4)})` : 'Definir localização atual (GPS)'}
+            </button>
+         </div>
          <div className="p-6 border border-slate-200 rounded-2xl bg-slate-50/50">
             <h4 className="font-bold flex items-center gap-2 mb-6 text-lg"><Clock className="w-6 h-6 text-blue-500"/> Horário de Funcionamento</h4>
             <div className="space-y-4">

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { collection, doc, onSnapshot, query } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { Search, ShoppingCart, Clock, Minus, Plus, ShoppingBag, X, Package } from 'lucide-react';
+import { Search, ShoppingCart, Clock, Minus, Plus, ShoppingBag, X, Package, MapPin, Navigation } from 'lucide-react';
 
 export default function PublicStorefront() {
   const { smId } = useParams<{ smId: string }>();
@@ -18,6 +18,14 @@ export default function PublicStorefront() {
   // Cart state
   const [cart, setCart] = useState<{product: any, quantity: number}[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+
+  // Delivery checkout state (feeds the entregador app)
+  const [deliveryConfig, setDeliveryConfig] = useState<any>(null);
+  const [checkout, setCheckout] = useState({
+    name: '', phone: '', street: '', number: '', complement: '', neighborhood: '', city: '', reference: '',
+  });
+  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
+  const [placingOrder, setPlacingOrder] = useState(false);
 
   useEffect(() => {
     if (!smId) return;
@@ -67,6 +75,11 @@ export default function PublicStorefront() {
         }
     }, (error) => handleFirestoreError(error, OperationType.GET, `supermarkets/${smId}/storefront/appConfig`));
 
+    // Fetch delivery config (shipping fee + who delivers)
+    const dcUnsub = onSnapshot(doc(db, `supermarkets/${smId}/deliveryConfig/main`), (docSnap) => {
+        if (docSnap.exists()) setDeliveryConfig(docSnap.data());
+    }, (error) => handleFirestoreError(error, OperationType.GET, `supermarkets/${smId}/deliveryConfig`));
+
     return () => {
         smUnsub();
         gdUnsub();
@@ -74,6 +87,7 @@ export default function PublicStorefront() {
         pmUnsub();
         configUnsub();
         appConfigUnsub();
+        dcUnsub();
     };
   }, [smId]);
 
@@ -584,49 +598,108 @@ export default function PublicStorefront() {
                       )}
                   </div>
                   
-                  {cart.length > 0 && (
-                      <div className="p-6 bg-slate-50 border-t border-slate-200">
-                          <div className="flex items-center justify-between mb-4 font-bold text-slate-600">
-                              <span>Total da compra</span>
-                              <span className="text-2xl font-black text-slate-800">R$ {cartTotal.toFixed(2)}</span>
+                  {cart.length > 0 && (() => {
+                      const deliveryFee = deliveryConfig?.shippingType === 'transparent' ? Number(deliveryConfig.flatFeeValue || 0) : 0;
+                      const grandTotal = cartTotal + deliveryFee;
+                      const inputCls = "w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl focus:border-[#58CC02] outline-none font-medium text-slate-700 text-sm transition-colors";
+                      return (
+                      <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-4">
+                          <div>
+                              <h4 className="font-black text-slate-800 mb-2 flex items-center gap-2"><MapPin className="w-4 h-4 text-[#58CC02]"/> Dados de entrega</h4>
+                              <div className="grid grid-cols-2 gap-2">
+                                  <input className={inputCls} placeholder="Seu nome" value={checkout.name} onChange={e => setCheckout({...checkout, name: e.target.value})} />
+                                  <input className={inputCls} placeholder="Telefone" value={checkout.phone} onChange={e => setCheckout({...checkout, phone: e.target.value})} />
+                                  <input className={`${inputCls} col-span-2`} placeholder="Rua / Avenida" value={checkout.street} onChange={e => setCheckout({...checkout, street: e.target.value})} />
+                                  <input className={inputCls} placeholder="Número" value={checkout.number} onChange={e => setCheckout({...checkout, number: e.target.value})} />
+                                  <input className={inputCls} placeholder="Bairro" value={checkout.neighborhood} onChange={e => setCheckout({...checkout, neighborhood: e.target.value})} />
+                                  <input className={inputCls} placeholder="Cidade" value={checkout.city} onChange={e => setCheckout({...checkout, city: e.target.value})} />
+                                  <input className={inputCls} placeholder="Complemento" value={checkout.complement} onChange={e => setCheckout({...checkout, complement: e.target.value})} />
+                                  <input className={`${inputCls} col-span-2`} placeholder="Ponto de referência" value={checkout.reference} onChange={e => setCheckout({...checkout, reference: e.target.value})} />
+                              </div>
+                              <button type="button" onClick={() => {
+                                  if (navigator.geolocation) {
+                                      navigator.geolocation.getCurrentPosition(
+                                          (pos) => { setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude }); alert('Localização capturada para a entrega!'); },
+                                          () => alert('Não foi possível obter a localização.')
+                                      );
+                                  } else {
+                                      alert('Geolocalização não suportada neste navegador.');
+                                  }
+                              }} className={`mt-2 text-sm font-bold ${geo ? 'text-[#58CC02]' : 'text-slate-500'} flex items-center gap-1`}>
+                                  <Navigation className="w-4 h-4"/> {geo ? 'Localização adicionada ✓' : 'Usar minha localização (GPS)'}
+                              </button>
                           </div>
-                          <button 
+
+                          <div className="space-y-1">
+                              <div className="flex items-center justify-between text-slate-500 font-medium text-sm">
+                                  <span>Subtotal</span><span>R$ {cartTotal.toFixed(2)}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-slate-500 font-medium text-sm">
+                                  <span>Frete</span><span>{deliveryFee > 0 ? `R$ ${deliveryFee.toFixed(2)}` : 'Grátis'}</span>
+                              </div>
+                              <div className="flex items-center justify-between font-bold text-slate-800 pt-1">
+                                  <span>Total</span><span className="text-2xl font-black">R$ {grandTotal.toFixed(2)}</span>
+                              </div>
+                          </div>
+
+                          <button
+                             disabled={placingOrder}
                              onClick={async () => {
+                                 if (!checkout.name.trim() || !checkout.phone.trim() || !checkout.street.trim()) {
+                                     alert('Preencha ao menos nome, telefone e rua para a entrega.');
+                                     return;
+                                 }
+                                 setPlacingOrder(true);
                                  try {
                                      const pId = Math.random().toString(36).substring(2, 9);
-                                     const items = cart.map(i => ({ 
-                                         productId: i.product.id, 
-                                         name: i.product.name, 
-                                         quantity: i.quantity, 
+                                     const items = cart.map(i => ({
+                                         productId: i.product.id,
+                                         name: i.product.name,
+                                         quantity: i.quantity,
                                          price: i.product.price,
                                          separated: false,
                                          missing: false
                                      }));
-                                     // Using the user-facing firebase hook, so throwing an error might be useful, but let's just do standard setDoc.
                                      const { setDoc, serverTimestamp } = await import('firebase/firestore');
                                      await setDoc(doc(db, `supermarkets/${smId}/orders`, pId), {
                                          supermarketId: smId,
                                          customerId: `CLI-${Math.floor(Math.random()*1000)}`,
                                          status: 'pending',
+                                         deliveryStatus: 'awaiting_driver',
                                          items: items,
-                                         total: cartTotal,
+                                         total: grandTotal,
+                                         deliveryFee: deliveryFee,
+                                         customerName: checkout.name.trim(),
+                                         customerPhone: checkout.phone.trim(),
+                                         deliveryAddress: {
+                                             street: checkout.street.trim(),
+                                             number: checkout.number.trim(),
+                                             complement: checkout.complement.trim(),
+                                             neighborhood: checkout.neighborhood.trim(),
+                                             city: checkout.city.trim(),
+                                             reference: checkout.reference.trim(),
+                                             ...(geo ? { lat: geo.lat, lng: geo.lng } : {}),
+                                         },
                                          createdAt: serverTimestamp(),
                                          updatedAt: serverTimestamp()
                                      });
-                                     alert('Pedido enviado com sucesso! Aguarde a separação.');
+                                     alert('Pedido enviado com sucesso! Aguarde a separação e a entrega.');
                                      setCart([]);
                                      setIsCartOpen(false);
                                  } catch(e) {
                                      alert('Erro ao criar pedido.');
                                      console.error(e);
+                                 } finally {
+                                     setPlacingOrder(false);
                                  }
                              }}
-                             className="w-full bg-[#58CC02] hover:bg-[#4ba802] text-white py-4 rounded-xl font-bold text-lg transition-colors shadow-lg shadow-[#58CC02]/20"
+                             className="w-full bg-[#58CC02] hover:bg-[#4ba802] disabled:opacity-60 text-white py-4 rounded-xl font-bold text-lg transition-colors shadow-lg shadow-[#58CC02]/20"
                           >
-                              Finalizar Pedido
+                              {placingOrder ? 'Enviando...' : 'Finalizar Pedido'}
                           </button>
                       </div>
-                  )}
+                      );
+                  })()}
               </div>
           </div>
       )}

@@ -28,6 +28,29 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/supermarkets/$(supermarketId)).data.ownerId == request.auth.uid;
     }
 
+    // Collection-group read so the driver app (nexmarket--entregador) can
+    // discover available orders across every store, and list its own.
+    match /{path=**}/orders/{orderId} {
+      allow read: if true;
+    }
+
+    // Delivery drivers (managed by the nexmarket--entregador app).
+    match /drivers/{driverId} {
+      // A driver reads/writes their own profile. Store owners (signed in) may
+      // read a driver's public info to track an assigned delivery.
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == driverId;
+      allow update: if isSignedIn() && request.auth.uid == driverId;
+      allow delete: if false;
+
+      match /payouts/{payoutId} {
+        allow read: if isSignedIn() && request.auth.uid == driverId;
+        allow create: if isSignedIn() && request.auth.uid == driverId
+          && incoming().amount is number && incoming().amount > 0;
+        allow update, delete: if false;
+      }
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       
@@ -158,16 +181,45 @@ service cloud.firestore {
             && data.updatedAt is timestamp;
         }
 
-        allow create: if true 
+        allow create: if true
           && isValidOrder(incoming())
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time;
-          
-        allow update: if true // Anyone can update order status for now
-          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'items', 'total', 'updatedAt'])
-          && incoming().updatedAt == request.time;
-          
+
+        // Customers/store update status & items (no driverId touched), and the
+        // driver app updates delivery fields. Claiming a delivery (setting
+        // driverId) requires auth and can't hijack an order already taken.
+        allow update: if
+          incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'items', 'total', 'updatedAt',
+              'deliveryStatus', 'driverId', 'driverName', 'driverLocation', 'driverEarnings',
+              'acceptedAt', 'pickedUpAt', 'deliveredAt', 'proofOfDelivery', 'problemReport',
+              'deliveryAddress', 'customerName', 'customerPhone', 'deliveryFee',
+              'rating', 'ratingComment'
+          ])
+          && (
+              !incoming().diff(existing()).affectedKeys().hasAny(['driverId'])
+              || (
+                  isSignedIn()
+                  && (existing().get('driverId', '') == '' || existing().get('driverId', '') == request.auth.uid)
+                  && (incoming().get('driverId', '') == '' || incoming().get('driverId', '') == request.auth.uid)
+                 )
+          );
+
         allow delete: if isSignedIn() && isSupermarketOwner(supermarketId);
+
+        // Order-scoped chat between driver, store and support.
+        match /messages/{msgId} {
+          allow read: if true;
+          allow create: if isSignedIn()
+            && incoming().keys().hasAll(['text', 'senderId', 'senderRole', 'createdAt'])
+            && incoming().text is string && incoming().text.size() > 0 && incoming().text.size() <= 2000
+            && incoming().senderId is string && incoming().senderId.size() <= 128
+            && incoming().senderRole is string && incoming().senderRole.size() <= 20
+            && incoming().createdAt == request.time;
+          allow update, delete: if false;
+        }
       }
 
       match /promotions/{promoId} {

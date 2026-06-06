@@ -77,10 +77,93 @@
           }
         },
         "total": { "type": "number" },
+        "deliveryStatus": { "type": "string", "enum": ["awaiting_driver", "going_to_store", "arrived_store", "picked_up", "going_to_customer", "delivered", "problem"], "description": "Granular delivery state owned by the entregador app." },
+        "deliveryFee": { "type": "number" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "deliveryAddress": {
+          "type": "object",
+          "properties": {
+            "street": { "type": "string" },
+            "number": { "type": "string" },
+            "complement": { "type": "string" },
+            "neighborhood": { "type": "string" },
+            "city": { "type": "string" },
+            "reference": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "driverId": { "type": "string" },
+        "driverName": { "type": "string" },
+        "driverEarnings": { "type": "number" },
+        "driverLocation": { "type": "object", "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } } },
+        "acceptedAt": { "type": "number" },
+        "pickedUpAt": { "type": "number" },
+        "deliveredAt": { "type": "number" },
+        "proofOfDelivery": {
+          "type": "object",
+          "properties": {
+            "signatureUrl": { "type": "string" },
+            "photoUrl": { "type": "string" },
+            "note": { "type": "string" },
+            "receivedBy": { "type": "string" }
+          }
+        },
+        "problemReport": { "type": "object", "properties": { "type": { "type": "string" }, "note": { "type": "string" } } },
         "createdAt": { "type": "string", "format": "timestamp" },
         "updatedAt": { "type": "string", "format": "timestamp" }
       },
       "required": ["supermarketId", "customerId", "status", "items", "total", "createdAt", "updatedAt"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "A delivery driver (managed by the nexmarket--entregador app).",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["online", "offline", "on_delivery"] },
+        "vehicle": { "type": "object", "properties": { "type": { "type": "string" }, "plate": { "type": "string" }, "model": { "type": "string" } } },
+        "documents": { "type": "object", "properties": { "cnhUrl": { "type": "string" }, "vehicleDocUrl": { "type": "string" }, "profilePhotoUrl": { "type": "string" }, "status": { "type": "string" } } },
+        "bank": { "type": "object" },
+        "preferences": { "type": "object" },
+        "location": { "type": "object", "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } } },
+        "rating": { "type": "number" },
+        "totalDeliveries": { "type": "number" },
+        "balance": { "type": "number" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["name", "status", "createdAt", "updatedAt"]
+    },
+    "Payout": {
+      "title": "Payout",
+      "description": "A driver withdrawal request.",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "destination": { "type": "string" },
+        "status": { "type": "string", "enum": ["requested", "processing", "paid", "rejected"] },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["amount", "status", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Order-scoped message between driver, store and support.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["driver", "customer", "store", "support"] },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["text", "senderId", "senderRole", "createdAt"]
     },
     "User": {
       "title": "User",
@@ -133,7 +216,19 @@
     },
     "/supermarkets/{supermarketId}/orders/{orderId}": {
       "schema": "Order",
-      "description": "Stores customer orders for a supermarket."
+      "description": "Stores customer orders for a supermarket (incl. delivery fields)."
+    },
+    "/supermarkets/{supermarketId}/orders/{orderId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Order-scoped chat between driver, store and support."
+    },
+    "/drivers/{driverId}": {
+      "schema": "Driver",
+      "description": "Delivery driver profiles (nexmarket--entregador app)."
+    },
+    "/drivers/{driverId}/payouts/{payoutId}": {
+      "schema": "Payout",
+      "description": "Driver withdrawal requests."
     }
   }
 }
