@@ -181,6 +181,46 @@
       },
       "required": ["name", "email", "role", "createdAt", "updatedAt"]
     },
+    "Customer": {
+      "title": "Customer",
+      "description": "End-customer profile (managed by the nexmarket--cliente app).",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "cpf": { "type": "string" },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string", "enum": ["casa", "trabalho", "outro"] },
+              "nickname": { "type": "string" },
+              "cep": { "type": "string" },
+              "street": { "type": "string" },
+              "number": { "type": "string" },
+              "complement": { "type": "string" },
+              "neighborhood": { "type": "string" },
+              "city": { "type": "string" },
+              "state": { "type": "string" },
+              "reference": { "type": "string" },
+              "lat": { "type": "number" },
+              "lng": { "type": "number" }
+            }
+          }
+        },
+        "defaultAddressId": { "type": "string" },
+        "favorites": { "type": "array", "items": { "type": "string" } },
+        "preferences": { "type": "object" },
+        "lastSupermarketId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["name", "createdAt", "updatedAt"]
+    },
     "StorefrontConfig": {
       "title": "StorefrontConfig",
       "description": "Store JSON configuration for the public storefront design.",
@@ -197,6 +237,10 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "Stores user profiles."
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "End-customer profiles (nexmarket--cliente app)."
     },
     "/supermarkets/{supermarketId}": {
       "schema": "Supermarket",

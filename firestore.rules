@@ -8,6 +8,13 @@ service cloud.firestore {
 
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { return false; } // No admin feature yet
+    // A signed-in delivery driver (has a /drivers/{uid} profile). Used to let
+    // the entregador app discover orders across stores without exposing every
+    // customer's orders to other customers (RNF11).
+    function isDriver() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/drivers/$(request.auth.uid));
+    }
     function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
@@ -28,10 +35,14 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/supermarkets/$(supermarketId)).data.ownerId == request.auth.uid;
     }
 
-    // Collection-group read so the driver app (nexmarket--entregador) can
-    // discover available orders across every store, and list its own.
+    // Collection-group read. The driver app (nexmarket--entregador) discovers
+    // available orders across every store; the customer app (nexmarket--cliente)
+    // only ever lists its OWN orders (RNF11 — a customer can't read another
+    // customer's orders). Store owners read their orders via the direct
+    // subcollection path below.
     match /{path=**}/orders/{orderId} {
-      allow read: if true;
+      allow read: if isDriver()
+        || (isSignedIn() && resource.data.customerId == request.auth.uid);
     }
 
     // Delivery drivers (managed by the nexmarket--entregador app).
@@ -49,6 +60,17 @@ service cloud.firestore {
           && incoming().amount is number && incoming().amount > 0;
         allow update, delete: if false;
       }
+    }
+
+    // Customer profiles (managed by the nexmarket--cliente app). A customer can
+    // only read/write their OWN document, and may delete it for LGPD account
+    // erasure (RNF12). Customers never write to the product catalog (RNF11).
+    match /customers/{customerId} {
+      allow read: if isSignedIn() && request.auth.uid == customerId;
+      allow create, update: if isSignedIn()
+        && request.auth.uid == customerId
+        && incoming().updatedAt == request.time;
+      allow delete: if isSignedIn() && request.auth.uid == customerId;
     }
 
     match /users/{userId} {
@@ -168,8 +190,12 @@ service cloud.firestore {
       }
 
       match /orders/{orderId} {
-        allow read: if true;
-        
+        // Store owner reads all its orders; a driver (entregador) reads orders
+        // to fulfil them; a customer reads only their OWN order (RNF11).
+        allow read: if isSupermarketOwner(supermarketId)
+          || isDriver()
+          || (isSignedIn() && existing().customerId == request.auth.uid);
+
         function isValidOrder(data) {
           return data.keys().hasAll(['supermarketId', 'customerId', 'status', 'items', 'total', 'createdAt', 'updatedAt'])
             && data.supermarketId is string && data.supermarketId == supermarketId
@@ -181,10 +207,18 @@ service cloud.firestore {
             && data.updatedAt is timestamp;
         }
 
-        allow create: if true
-          && isValidOrder(incoming())
+        // A signed-in customer may only create orders under their OWN uid
+        // (RNF11). Unauthenticated creation (legacy web storefront guest
+        // checkout) stays allowed for backward compatibility, and a store owner
+        // may create test orders for their own store (storefront preview).
+        allow create: if isValidOrder(incoming())
           && incoming().createdAt == request.time
-          && incoming().updatedAt == request.time;
+          && incoming().updatedAt == request.time
+          && (
+              request.auth == null
+              || incoming().customerId == request.auth.uid
+              || isSupermarketOwner(supermarketId)
+          );
 
         // Customers/store update status & items (no driverId touched), and the
         // driver app updates delivery fields. Claiming a delivery (setting
@@ -192,11 +226,12 @@ service cloud.firestore {
         allow update: if
           incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'items', 'total', 'updatedAt',
+              'status', 'items', 'total', 'subtotal', 'discount', 'couponCode', 'updatedAt',
               'deliveryStatus', 'driverId', 'driverName', 'driverLocation', 'driverEarnings',
               'acceptedAt', 'pickedUpAt', 'deliveredAt', 'proofOfDelivery', 'problemReport',
               'deliveryAddress', 'customerName', 'customerPhone', 'deliveryFee',
-              'rating', 'ratingComment'
+              'fulfillment', 'paymentMethod', 'paymentStatus', 'scheduledFor', 'changeFor', 'notes',
+              'rating', 'ratingComment', 'ratingTags', 'ratingPhotoUrl'
           ])
           && (
               !incoming().diff(existing()).affectedKeys().hasAny(['driverId'])
