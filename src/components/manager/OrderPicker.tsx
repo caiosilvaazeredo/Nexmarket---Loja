@@ -9,6 +9,28 @@ interface OrderPickerProps {
   products: any[];
 }
 
+/** Chip de pagamento do pedido (integração Stripe: pago / aguardando / estornado). */
+function paymentChip(order: any): { label: string; cls: string } {
+  const online = order.paymentMethod === 'pix' || order.paymentMethod === 'card_online';
+  const st = order.paymentStatus || order.payment?.status;
+  if (st === 'paid') return { label: online ? 'Pago online' : 'Pago', cls: 'bg-green-100 text-green-700' };
+  if (st === 'refunded') return { label: 'Estornado', cls: 'bg-purple-100 text-purple-700' };
+  if (online) return { label: 'Aguardando pagamento', cls: 'bg-red-100 text-red-600' };
+  const labels: Record<string, string> = {
+    card_delivery: 'Cartão na entrega',
+    cash_delivery: 'Dinheiro na entrega',
+    voucher_delivery: 'Vale na entrega',
+  };
+  return { label: labels[order.paymentMethod] || 'Pagamento na entrega', cls: 'bg-slate-100 text-slate-600' };
+}
+
+/** Pedido online ainda sem confirmação de pagamento — separa só depois de pago. */
+function awaitingOnlinePayment(order: any): boolean {
+  const online = order.paymentMethod === 'pix' || order.paymentMethod === 'card_online';
+  const st = order.paymentStatus || order.payment?.status;
+  return online && st !== 'paid';
+}
+
 export default function OrderPicker({ supermarketId, products }: OrderPickerProps) {
   const [orders, setOrders] = useState<any[]>([]);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
@@ -155,6 +177,9 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
                   <div>
                       <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-green-500"/> Pedido #{activeOrder.id.slice(0,6)}</h2>
                       <p className="text-slate-500">Cliente ID: {activeOrder.customerId}</p>
+                      <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-bold ${paymentChip(activeOrder).cls}`}>
+                          {paymentChip(activeOrder).label}
+                      </span>
                   </div>
                   <Button variant="secondary" onClick={() => setActiveOrderId(null)}>Pausar</Button>
               </div>
@@ -305,19 +330,28 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
         {orders.map(order => (
             <div key={order.id} className="bg-white p-6 rounded-3xl border-2 border-slate-100 flex items-center justify-between">
                 <div>
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${order.status === 'pending' ? 'bg-amber-100 text-amber-700' : order.status === 'picking' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
                             {order.status === 'pending' ? 'Novo' : order.status === 'picking' ? 'Em separação' : order.status}
+                        </span>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${paymentChip(order).cls}`}>
+                            {paymentChip(order).label}
                         </span>
                         <span className="text-slate-400 font-mono text-sm">#{order.id.slice(0,6)}</span>
                     </div>
                     <p className="text-slate-600 font-medium">{order.items?.length || 0} itens • R$ {order.total?.toFixed(2)}</p>
                 </div>
-                
+
                 {(order.status === 'pending' || order.status === 'picking') && (
-                    <Button onClick={() => startPicking(order.id)}>
-                        {order.status === 'pending' ? 'Iniciar Separação' : 'Continuar Separação'}
-                    </Button>
+                    awaitingOnlinePayment(order) ? (
+                        <span className="px-4 py-2 rounded-xl bg-red-50 text-red-600 text-sm font-bold">
+                            Aguardando pagamento do cliente
+                        </span>
+                    ) : (
+                        <Button onClick={() => startPicking(order.id)}>
+                            {order.status === 'pending' ? 'Iniciar Separação' : 'Continuar Separação'}
+                        </Button>
+                    )
                 )}
             </div>
         ))}

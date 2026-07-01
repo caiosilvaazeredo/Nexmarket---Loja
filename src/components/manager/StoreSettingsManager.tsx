@@ -248,6 +248,10 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
                        <input type="checkbox" className="w-5 h-5 text-emerald-500 rounded focus:ring-emerald-500" checked={paymentMethods.creditCardOnline} onChange={e => setPaymentMethods(p => ({...p, creditCardOnline: e.target.checked}))} />
                        <span className="font-medium text-slate-700">Cartão de Crédito Online (App)</span>
                      </label>
+                     <p className="text-xs text-slate-400">
+                       PIX e cartão online são cobrados via <b>Stripe</b> no app do cliente; pedidos só entram na
+                       separação após a confirmação do pagamento.
+                     </p>
                    </div>
                 </div>
               </div>
