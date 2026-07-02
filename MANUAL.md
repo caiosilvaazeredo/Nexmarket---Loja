@@ -72,6 +72,18 @@ O que a loja controla:
 3. **Estornos** — executados pelo painel Empresa (estorno real na Stripe); o status
    *Estornado* aparece no card do pedido.
 
+## ✨ Novidades operacionais (ver ROADMAP.md no repo Empresa)
+
+- **Campainha de pedido novo** 🔔: som + destaque pulsante no card + timer
+  "aguardando há X min" (fica vermelho após 5 min).
+- **Kanban de pedidos**: alternância *Fila | Kanban* na tela de pedidos — arraste
+  os cards entre **Novos → Em separação → Prontos** (a coluna *Em entrega* é do
+  entregador). O gate de pagamento vale também no arraste.
+- **Frete dinâmico (surge)**: com 5+ pedidos na fila o multiplicador sobe para
+  1,5× (10+ → 2×) automaticamente e o app do cliente avisa "alta demanda ⚡".
+- **Push transacional**: com `VITE_PAYMENTS_API_URL` no `.env`, o cliente recebe
+  push quando o pedido entra em separação e quando fica pronto.
+
 ## 🆘 Problemas comuns
 
 | Sintoma | Correção |
