@@ -42,11 +42,15 @@ interface OrderPickerProps {
   products: any[];
 }
 
-/** Chip de pagamento do pedido (integração Stripe: pago / aguardando / estornado). */
+/** Métodos cobrados online (Stripe/PicPay/NuPay) — exigem confirmação antes da separação. */
+const ONLINE_METHODS = ['pix', 'card_online', 'picpay', 'nupay'];
+
+/** Chip de pagamento do pedido (pago / aguardando / estornado / na entrega). */
 function paymentChip(order: any): { label: string; cls: string } {
-  const online = order.paymentMethod === 'pix' || order.paymentMethod === 'card_online';
+  const online = ONLINE_METHODS.includes(order.paymentMethod);
   const st = order.paymentStatus || order.payment?.status;
-  if (st === 'paid') return { label: online ? 'Pago online' : 'Pago', cls: 'bg-green-100 text-green-700' };
+  const onlineName: Record<string, string> = { pix: 'PIX', card_online: 'online', picpay: 'PicPay', nupay: 'NuPay' };
+  if (st === 'paid') return { label: online ? `Pago (${onlineName[order.paymentMethod] || 'online'})` : 'Pago', cls: 'bg-green-100 text-green-700' };
   if (st === 'refunded') return { label: 'Estornado', cls: 'bg-purple-100 text-purple-700' };
   if (online) return { label: 'Aguardando pagamento', cls: 'bg-red-100 text-red-600' };
   const labels: Record<string, string> = {
@@ -59,7 +63,7 @@ function paymentChip(order: any): { label: string; cls: string } {
 
 /** Pedido online ainda sem confirmação de pagamento — separa só depois de pago. */
 function awaitingOnlinePayment(order: any): boolean {
-  const online = order.paymentMethod === 'pix' || order.paymentMethod === 'card_online';
+  const online = ONLINE_METHODS.includes(order.paymentMethod);
   const st = order.paymentStatus || order.payment?.status;
   return online && st !== 'paid';
 }
