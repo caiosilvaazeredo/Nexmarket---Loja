@@ -1,9 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut,
-  signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  sendPasswordResetEmail, signInAnonymously 
-} from 'firebase/auth';
+import { getAuth, signInWithCustomToken, signInAnonymously, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -13,24 +9,42 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app, `gs://${firebaseConfig.storageBucket}`);
 
-export const googleProvider = new GoogleAuthProvider();
+/* -------------------------- Auth helpers -------------------------- *
+ * Login/senha NÃO usam mais os provedores nativos do Firebase (nem e-mail/
+ * senha nativo, nem Google) — vivem no Firestore, validados pelo backend
+ * compartilhado (repo nexmarket--empresa, pasta server/), que emite um
+ * Firebase Custom Token. O Firebase Auth aqui é usado SÓ como mecanismo de
+ * sessão, para as Security Rules continuarem funcionando (request.auth). */
 
-export const loginWithGoogle = async () => {
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
-  } catch (error) {
-    console.error('Login failed', error);
-    throw error;
-  }
-};
+const AUTH_API_URL = (import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8787').replace(/\/$/, '');
+
+async function requestCustomToken(path: string, body: Record<string, unknown>) {
+  const res = await fetch(`${AUTH_API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || 'Falha na autenticação.');
+  return data as { customToken: string; uid: string };
+}
 
 export const loginWithEmail = async (email: string, pass: string) => {
-  return (await signInWithEmailAndPassword(auth, email, pass)).user;
+  const { customToken } = await requestCustomToken('/api/auth/login', {
+    app: 'loja',
+    email,
+    password: pass,
+  });
+  return (await signInWithCustomToken(auth, customToken)).user;
 };
 
 export const registerWithEmail = async (email: string, pass: string) => {
-  return (await createUserWithEmailAndPassword(auth, email, pass)).user;
+  const { customToken } = await requestCustomToken('/api/auth/register', {
+    app: 'loja',
+    email,
+    password: pass,
+  });
+  return (await signInWithCustomToken(auth, customToken)).user;
 };
 
 export const loginAsVisitor = async () => {
@@ -38,10 +52,6 @@ export const loginAsVisitor = async () => {
     return auth.currentUser;
   }
   return (await signInAnonymously(auth)).user;
-};
-
-export const resetPassword = async (email: string) => {
-  return await sendPasswordResetEmail(auth, email);
 };
 
 export const logout = async () => {
