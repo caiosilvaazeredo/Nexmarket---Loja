@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Clock, CreditCard, Save, MapPin, Navigation } from 'lucide-react';
 import { Button } from '../ui/Button';
+import PayoutAccountManager from './PayoutAccountManager';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
 
@@ -277,6 +278,9 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
             </div>
          </div>
       </div>
+
+      {/* Conta de recebimento dos repasses (documento separado do storeInfo) */}
+      <PayoutAccountManager supermarketId={supermarketId} />
     </div>
   );
 }
