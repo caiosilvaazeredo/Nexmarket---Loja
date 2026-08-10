@@ -57,3 +57,28 @@ segredo da chave.
 
 O Blueprint já configura o *rewrite* de SPA (um F5 em `/pedidos` não dá 404) e
 `Cache-Control` longo para `/assets/*`, que carregam hash no nome.
+
+---
+
+## 📍 Marcar a loja no mapa
+
+Em **Configurações da loja → Endereço da Loja**, duas formas de definir as
+coordenadas:
+
+- **Buscar pelo endereço** — geocodificação pelo Nominatim (OpenStreetMap).
+  Funciona de qualquer lugar. Roda automaticamente ao salvar, se ainda não
+  houver ponto.
+- **Estou na loja agora (GPS)** — exato, mas grava **onde quem clica está**.
+  O rótulo diz isso de propósito: o botão anterior ("Definir localização
+  atual") levava o pino da loja para a casa de quem configurava de casa.
+
+Isso alimenta dois lugares:
+
+1. `settings/storeInfo.storeLocation` → o **app do entregador** usa para o
+   mapa da coleta e para os botões de Waze/Google Maps;
+2. o mesmo campo → o **app do cliente** usa para mostrar a distância e
+   ordenar mercados por proximidade. Loja sem ponto fica sem distância e cai
+   para o fim da lista.
+
+Falhar a busca não impede salvar — o endereço escrito continua valendo, só
+fica sem o ponto.

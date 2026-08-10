@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Clock, CreditCard, Save, MapPin, Navigation } from 'lucide-react';
+import { Settings, Clock, CreditCard, Save, MapPin, Navigation, Search, AlertTriangle } from 'lucide-react';
 import { Button } from '../ui/Button';
 import PayoutAccountManager from './PayoutAccountManager';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
+import { geocodeAddress } from '../../lib/geocoding';
 
 const VOUCHER_OPTIONS = [
   'Alelo Alimentação', 'Alelo Refeição', 
@@ -49,6 +50,7 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
 
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLocating, setIsLocating] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -70,13 +72,40 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
     fetchSettings();
   }, [supermarketId]);
 
+  /** Busca as coordenadas pelo endereço escrito. */
+  const handleGeocode = async (silent = false) => {
+    if (!silent) setIsLocating(true);
+    const found = await geocodeAddress(storeLocation.address);
+    if (found) {
+      setStoreLocation(s => ({ ...s, lat: found.lat, lng: found.lng }));
+    } else if (!silent) {
+      alert(
+        'Não encontramos este endereço no mapa.\n\n' +
+        'Confira rua, número, bairro e cidade. Se estiver na loja agora, ' +
+        'use "Estou na loja agora" — o GPS acerta melhor.'
+      );
+    }
+    setIsLocating(false);
+    return found;
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      // Última chance de marcar a loja no mapa: quem digitou o endereço e
+      // saiu salvando não vai voltar para clicar num botão, e uma loja sem
+      // ponto manda o entregador procurar a rua na mão. Falha aqui é
+      // silenciosa — não pode impedir o salvamento.
+      let location = storeLocation;
+      if (location.lat == null && location.address.trim()) {
+        const found = await handleGeocode(true);
+        if (found) location = { ...location, ...found };
+      }
+
       await setDoc(doc(db, `supermarkets/${supermarketId}/settings/storeInfo`), {
         openingHours,
         paymentMethods,
-        storeLocation,
+        storeLocation: location,
         updatedAt: serverTimestamp()
       }, { merge: true });
       alert('Configurações salvas com sucesso!');
@@ -131,16 +160,37 @@ export default function StoreSettingsManager({ supermarketId }: { supermarketId:
               value={storeLocation.address}
               onChange={e => setStoreLocation({ ...storeLocation, address: e.target.value })}
             />
-            <button type="button" onClick={() => {
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => setStoreLocation(s => ({ ...s, lat: pos.coords.latitude, lng: pos.coords.longitude })),
-                        () => alert('Não foi possível obter a localização.')
-                    );
-                } else { alert('Geolocalização não suportada neste navegador.'); }
-            }} className={`mt-3 text-sm font-bold flex items-center gap-1 ${storeLocation.lat ? 'text-[#58CC02]' : 'text-slate-500'}`}>
-                <Navigation className="w-4 h-4"/> {storeLocation.lat ? `Coordenadas salvas (${storeLocation.lat.toFixed(4)}, ${storeLocation.lng?.toFixed(4)})` : 'Definir localização atual (GPS)'}
-            </button>
+            {/*
+              Duas formas de marcar a loja no mapa, porque nenhuma serve
+              sempre: a busca por endereço funciona de qualquer lugar mas erra
+              em rua com nome repetido; o GPS é exato, mas só se quem clica
+              estiver na loja — daí o rótulo dizer isso em vez de "localização
+              atual", que já levou pino de loja para a casa do dono.
+            */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" disabled={isLocating} onClick={() => handleGeocode()}
+                className="px-3 py-2 text-sm font-bold rounded-lg border-2 border-slate-200 hover:border-[#58CC02] disabled:opacity-50 flex items-center gap-1.5">
+                <Search className="w-4 h-4"/> Buscar pelo endereço
+              </button>
+              <button type="button" disabled={isLocating} onClick={() => {
+                  if (!navigator.geolocation) { alert('Geolocalização não suportada neste navegador.'); return; }
+                  setIsLocating(true);
+                  navigator.geolocation.getCurrentPosition(
+                      (pos) => { setStoreLocation(s => ({ ...s, lat: pos.coords.latitude, lng: pos.coords.longitude })); setIsLocating(false); },
+                      () => { alert('Não foi possível obter a localização.'); setIsLocating(false); }
+                  );
+              }} className="px-3 py-2 text-sm font-bold rounded-lg border-2 border-slate-200 hover:border-[#58CC02] disabled:opacity-50 flex items-center gap-1.5">
+                <Navigation className="w-4 h-4"/> Estou na loja agora (GPS)
+              </button>
+            </div>
+
+            <p className={`mt-3 text-sm font-bold flex items-center gap-1.5 ${storeLocation.lat ? 'text-[#58CC02]' : 'text-orange-600'}`}>
+              {storeLocation.lat ? (
+                <><MapPin className="w-4 h-4"/> No mapa: {storeLocation.lat.toFixed(5)}, {storeLocation.lng?.toFixed(5)}</>
+              ) : (
+                <><AlertTriangle className="w-4 h-4"/> Sem ponto no mapa — tentaremos achar pelo endereço ao salvar</>
+              )}
+            </p>
          </div>
          <div className="p-6 border border-slate-200 rounded-2xl bg-slate-50/50">
             <h4 className="font-bold flex items-center gap-2 mb-6 text-lg"><Clock className="w-6 h-6 text-blue-500"/> Horário de Funcionamento</h4>
