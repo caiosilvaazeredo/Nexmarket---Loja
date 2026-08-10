@@ -38,3 +38,22 @@ pagamento da vitrine.
 O **calendário** (de quanto em quanto tempo o dinheiro cai) é definido pela
 Nexmarket no app da Empresa e apenas exibido aqui, lido de
 `platformConfig/public.storePayout`.
+
+---
+
+## 🌐 Publicar na web (Render)
+
+O painel é um site estático — o Vite gera `dist/` e o Render serve. O
+`render.yaml` na raiz já descreve tudo:
+
+1. No Render: **New → Blueprint** apontando para este repositório.
+2. Escolha a branch onde está o `render.yaml`
+   (`claude/flutter-client-delivery-apps-m8lmbw`, ou `main` depois do merge).
+
+Não há variável de ambiente a preencher: a loja fala direto com o Firestore, e
+as chaves públicas do Firebase já vivem no repositório — é assim que o
+Firebase funciona. O que protege os dados são as **Security Rules**, não o
+segredo da chave.
+
+O Blueprint já configura o *rewrite* de SPA (um F5 em `/pedidos` não dá 404) e
+`Cache-Control` longo para `/assets/*`, que carregam hash no nome.
