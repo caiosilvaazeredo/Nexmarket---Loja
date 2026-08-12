@@ -1,25 +1,23 @@
 > 📘 **[MANUAL.md](./MANUAL.md)** — como rodar, buildar e publicar o painel da loja (integração de pagamentos Stripe incluída).
 
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Nexmarket · Painel da Loja
 
-# Run and deploy your AI Studio app
+Painel web onde o supermercado gerencia a operação na Nexmarket: catálogo de
+produtos, estoque, preços e promoções, recebimento e acompanhamento de
+pedidos, horário de funcionamento e a conta que recebe os repasses.
 
-This contains everything you need to run your app locally.
+## Rodar localmente
 
-View your app in AI Studio: https://ai.studio/apps/2ab80fc8-bdc4-40c4-9282-35669db98074
+**Pré-requisitos:** Node.js
 
-## Run Locally
+```bash
+npm install
+npm run dev
+```
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+O painel sobe em `http://localhost:3000` e fala direto com o Firestore — as
+chaves públicas do Firebase já estão no repositório, que é como o Firebase
+funciona; o que protege os dados são as Security Rules.
 
 ---
 
