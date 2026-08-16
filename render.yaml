@@ -12,6 +12,14 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
 
+    envVars:
+      # Servidor compartilhado (repo nexmarket--Empresa, pasta server/), que
+      # atende login, cadastro e push. É lida em tempo de BUILD e embutida no
+      # bundle — por isso o código também tem um padrão por hostname, para o
+      # painel funcionar mesmo se este valor faltar num deploy.
+      - key: VITE_AUTH_API_URL
+        value: https://nexmarket-payments-60k3.onrender.com
+
     # SPA: qualquer rota do react-router precisa cair no index.html, senão um
     # F5 em /pedidos devolveria 404.
     routes:

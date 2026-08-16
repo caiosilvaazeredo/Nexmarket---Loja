@@ -5,10 +5,12 @@
  * painel Empresa.
  */
 import { auth } from './firebase';
+import { apiBaseUrl } from './apiBase';
 
 export function paymentsApiUrl(): string {
-  const env = (import.meta as any).env || {};
-  return String(env.VITE_PAYMENTS_API_URL || '').trim().replace(/\/$/, '');
+  // Mesma origem da autenticação: era uma string vazia por padrão, o que
+  // desligava o push transacional silenciosamente em produção.
+  return apiBaseUrl();
 }
 
 export function paymentsConfigured(): boolean {
