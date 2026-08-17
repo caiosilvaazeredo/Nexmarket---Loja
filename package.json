@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "nexmarket-loja",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -37,5 +37,6 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
-  }
+  },
+  "description": "Painel da loja na Nexmarket: catálogo, estoque, preços, pedidos e recebimentos."
 }

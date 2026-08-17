@@ -3,6 +3,7 @@ import { getAuth, signInWithCustomToken, signInAnonymously, signOut } from 'fire
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { apiBaseUrl } from './apiBase';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -16,14 +17,39 @@ export const storage = getStorage(app, `gs://${firebaseConfig.storageBucket}`);
  * Firebase Custom Token. O Firebase Auth aqui é usado SÓ como mecanismo de
  * sessão, para as Security Rules continuarem funcionando (request.auth). */
 
-const AUTH_API_URL = (import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8787').replace(/\/$/, '');
+/*
+ * O servidor roda em hospedagem que hiberna após um período sem uso: a
+ * primeira chamada do dia pode levar quase um minuto só para acordá-lo. Sem
+ * teto, a tela fica em "Entrando..." indefinidamente e parece travada — a
+ * pessoa recarrega, o que reinicia a espera do zero.
+ *
+ * 60s dá folga para o servidor acordar; passando disso, é falha de verdade e
+ * a mensagem precisa dizer isso em vez de deixar o botão girando.
+ */
+const TIMEOUT_MS = 60_000;
 
 async function requestCustomToken(path: string, body: Record<string, unknown>) {
-  const res = await fetch(`${AUTH_API_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    throw new Error(
+      err?.name === 'AbortError'
+        ? 'O servidor demorou para responder. Ele pode estar iniciando — tente de novo em um minuto.'
+        : 'Não foi possível falar com o servidor. Verifique sua conexão.',
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || 'Falha na autenticação.');
   return data as { customToken: string; uid: string };
