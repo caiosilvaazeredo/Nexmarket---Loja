@@ -3,14 +3,14 @@ import { collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serve
 import { ref, uploadBytesResumable, getDownloadURL, UploadTask } from 'firebase/storage';
 import { db, handleFirestoreError, OperationType, auth, storage } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Store, Layers, Package, Trash2, Edit3, GripVertical, Search, X, Upload, ShoppingCart, ListChecks, Tags, Smartphone, LogOut, HelpCircle, Truck, BarChart3, PackageX, Settings, Users, Megaphone, Star, Menu, Navigation } from 'lucide-react';
+import { ArrowLeft, Plus, Store, Layers, Package, Trash2, Edit3, GripVertical, Search, X, Upload, ShoppingCart, ListChecks, Tags, Smartphone, LogOut, HelpCircle, Truck, BarChart3, PackageX, Settings, Users, Megaphone, Star, Menu, Navigation, Wallet } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { GONDOLA_ICONS } from '../lib/gondolaIcons';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-type ManagerView = 'home' | 'shelves' | 'catalog' | 'orders' | 'gondolaApp' | 'promotions' | 'delivery' | 'tracking' | 'analytics' | 'inventory' | 'settings' | 'staff' | 'marketing' | 'reviews';
+type ManagerView = 'home' | 'shelves' | 'catalog' | 'orders' | 'gondolaApp' | 'promotions' | 'delivery' | 'tracking' | 'analytics' | 'inventory' | 'settings' | 'staff' | 'marketing' | 'reviews' | 'recebimentos';
 
 import CatalogManager from '../components/manager/CatalogManager';
 import OrderPicker from '../components/manager/OrderPicker';
@@ -22,6 +22,7 @@ import DeliveryTracking from '../components/manager/DeliveryTracking';
 import AnalyticsManager from '../components/manager/AnalyticsManager';
 import InventoryManager from '../components/manager/InventoryManager';
 import StoreSettingsManager from '../components/manager/StoreSettingsManager';
+import RecebedorManager from '../components/manager/RecebedorManager';
 import StaffManager from '../components/manager/StaffManager';
 import MarketingManager from '../components/manager/MarketingManager';
 import ReviewsManager from '../components/manager/ReviewsManager';
@@ -567,8 +568,14 @@ export default function ManagerDashboard() {
                         >
                             <Settings className="w-5 h-5"/> Configurações
                         </button>
-                        <button 
-                            onClick={() => { setManagerView('staff'); setIsSidebarOpen(false); }} 
+                        <button
+                            onClick={() => { setManagerView('recebimentos'); setIsSidebarOpen(false); }}
+                            className={`w-full flex items-center gap-3 p-3 rounded-xl font-bold transition-all ${managerView === 'recebimentos' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                            <Wallet className="w-5 h-5"/> Recebimentos
+                        </button>
+                        <button
+                            onClick={() => { setManagerView('staff'); setIsSidebarOpen(false); }}
                             className={`w-full flex items-center gap-3 p-3 rounded-xl font-bold transition-all ${managerView === 'staff' ? 'bg-pink-50 text-pink-700' : 'text-slate-600 hover:bg-slate-50'}`}
                         >
                             <Users className="w-5 h-5"/> Equipe
@@ -776,7 +783,18 @@ export default function ManagerDashboard() {
                                 <p className="text-slate-500">Horários de funcionamento, métodos de pagamento e dados da loja.</p>
                             </div>
 
-                            <div 
+                            <div
+                                onClick={() => setManagerView('recebimentos')}
+                                className="bg-white rounded-3xl p-8 border-2 border-slate-100 hover:border-emerald-400 hover:shadow-xl hover:shadow-emerald-500/10 transition-all cursor-pointer group"
+                            >
+                                <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                                    <Wallet className="w-8 h-8"/>
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">Recebimentos</h3>
+                                <p className="text-slate-500">Cadastre a conta que recebe os repasses das vendas (Pagar.me).</p>
+                            </div>
+
+                            <div
                                 onClick={() => setManagerView('staff')}
                                 className="bg-white rounded-3xl p-8 border-2 border-slate-100 hover:border-pink-400 hover:shadow-xl hover:shadow-pink-500/10 transition-all cursor-pointer group"
                             >
@@ -995,6 +1013,12 @@ export default function ManagerDashboard() {
                 {managerView === 'settings' && (
                     <div className="p-8 max-w-[1400px] w-full mx-auto">
                         <StoreSettingsManager supermarketId={selectedSmId} />
+                    </div>
+                )}
+
+                {managerView === 'recebimentos' && (
+                    <div className="p-8 max-w-[1400px] w-full mx-auto">
+                        <RecebedorManager supermarketId={selectedSmId} />
                     </div>
                 )}
 
