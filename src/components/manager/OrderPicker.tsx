@@ -2,9 +2,11 @@ import React, { useEffect, useState, useRef } from 'react';
 import { collection, query, onSnapshot, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
 import { sendPush } from '../../lib/payments';
+import { logStockRupture } from '../../lib/inventory';
+import { compressImage } from '../../lib/compressImage';
 import { Button } from '../ui/Button';
 import OrdersKanban from './OrdersKanban';
-import { Check, X, AlertCircle, ShoppingBag, Printer, ArrowRight, Search, Loader2, LayoutGrid, List, BellRing } from 'lucide-react';
+import { Check, X, AlertCircle, ShoppingBag, Printer, ArrowRight, Search, LayoutGrid, List, BellRing, Camera, MessageCircle, Download, PartyPopper } from 'lucide-react';
 
 /** Campainha de pedido novo (estilo iFood) — sintetizada, sem asset de áudio. */
 function ringBell() {
@@ -35,6 +37,13 @@ function ringBell() {
 function ageMinutes(createdAt: any): number {
   const ms = createdAt?.toMillis?.() ?? (createdAt?.seconds ? createdAt.seconds * 1000 : 0);
   return ms ? Math.floor((Date.now() - ms) / 60000) : 0;
+}
+
+/** Link wa.me com mensagem pronta — envio manual da foto da sacola (fase inicial, sem API do WhatsApp). */
+function waLink(phone: string | undefined, message: string): string {
+  const digits = (phone || '').replace(/\D/g, '');
+  const withCountry = digits.length >= 10 && digits.length <= 11 ? `55${digits}` : digits;
+  return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`;
 }
 
 interface OrderPickerProps {
@@ -137,26 +146,52 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
     }
   };
 
+  // --------------------------- Checklist de separação --------------------------
+  const [pickingStep, setPickingStep] = useState<'items' | 'photo'>('items');
   const [substituteItemIndex, setSubstituteItemIndex] = useState<number | null>(null);
   const [substituteSearch, setSubstituteSearch] = useState('');
-  const [substituteLoading, setSubstituteLoading] = useState(false);
   const [substituteSelected, setSubstituteSelected] = useState<any>(null);
+
+  // Foto da sacola fechada
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [photoCompressing, setPhotoCompressing] = useState(false);
+  const [photoSaving, setPhotoSaving] = useState(false);
+  const [photoSaved, setPhotoSaved] = useState(false);
+
+  // Reseta o estado do checklist sempre que um pedido diferente é aberto.
+  useEffect(() => {
+    setPickingStep('items');
+    setPhotoDataUrl(null);
+    setPhotoSaved(false);
+  }, [activeOrderId]);
+
+  const isComplete = !!activeOrder && activeOrder.items.every((i: any) => i.separated || i.missing);
+
+  // Ao marcar 100% dos itens, avança sozinho para a etapa de foto — sem botão
+  // extra de "finalizar" (spec: checklist de separação, item 4).
+  useEffect(() => {
+    if (isComplete && pickingStep === 'items') {
+      setPickingStep('photo');
+    }
+  }, [isComplete, pickingStep]);
 
   const markItem = async (itemIndex: number, status: 'separated' | 'missing') => {
       if (!activeOrder) return;
-      
+
       if (status === 'missing') {
           setSubstituteItemIndex(itemIndex);
           return;
       }
-      
+
       const newItems = [...activeOrder.items];
-      const item = newItems[itemIndex];
-      
+      const item = { ...newItems[itemIndex] };
+
       item.separated = true;
       item.missing = false;
       item.substituted = false;
-      
+      newItems[itemIndex] = item;
+
       try {
           await updateDoc(doc(db, `supermarkets/${supermarketId}/orders/${activeOrder.id}`), {
               items: newItems,
@@ -167,79 +202,97 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
       }
   };
 
-  const markMissingDirectly = async (itemIndex: number) => {
+  /**
+   * Marca o item como faltante (com ou sem substituto sugerido) e já notifica
+   * o cliente — nunca depois do despacho. O pedido entra em
+   * 'waiting_substitution' imediatamente, mas o restante da separação segue
+   * normal (spec: fluxo de item em falta, itens 1 e 3).
+   */
+  const flagMissingItem = async (itemIndex: number, substitute: any | null) => {
       if (!activeOrder) return;
-      
       const newItems = [...activeOrder.items];
-      const item = newItems[itemIndex];
-      
+      const item = { ...newItems[itemIndex] };
+
       item.separated = false;
       item.missing = true;
-      item.substituted = false;
-      
+      item.substituted = !!substitute;
+      item.customerDecision = 'pending';
+      // Timestamp em milissegundos (não dá para usar serverTimestamp() dentro
+      // de um array do Firestore) — usado pelo job de expiração no servidor.
+      item.missingAt = Date.now();
+      if (substitute) {
+          item.substituteName = substitute.name;
+          item.substitutePrice = substitute.price;
+      } else {
+          delete item.substituteName;
+          delete item.substitutePrice;
+      }
+      newItems[itemIndex] = item;
+
       try {
           await updateDoc(doc(db, `supermarkets/${supermarketId}/orders/${activeOrder.id}`), {
               items: newItems,
+              status: 'waiting_substitution',
               updatedAt: serverTimestamp()
           });
+          sendPush(
+              activeOrder.pushToken,
+              substitute ? 'Sugestão de substituição 🔄' : 'Item em falta ⚠️',
+              substitute
+                  ? `"${item.name}" está em falta. Sugerimos "${substitute.name}" no lugar. Abra o app para decidir.`
+                  : `"${item.name}" não está disponível. Abra o app para escolher o que fazer.`
+          );
+          logStockRupture(supermarketId, activeOrder.id, item.productId, item.name);
           setSubstituteItemIndex(null);
           setSubstituteSelected(null);
+          setSubstituteSearch('');
       } catch(err) {
           handleFirestoreError(err, OperationType.UPDATE, `supermarkets/${supermarketId}/orders`);
       }
   };
 
-  const sendSubstituteSuggestion = async () => {
-      if (!activeOrder || substituteItemIndex === null || !substituteSelected) return;
-      
-      setSubstituteLoading(true);
-      
-      // Simulate waiting for customer approval
-      setTimeout(async () => {
-          setSubstituteLoading(false);
-          
-          const newItems = [...activeOrder.items];
-          const item = newItems[substituteItemIndex];
-          
-          item.separated = false;
-          item.missing = true;
-          item.substituted = true;
-          item.substituteName = substituteSelected.name;
-          item.substitutePrice = substituteSelected.price;
-          
-          try {
-              await updateDoc(doc(db, `supermarkets/${supermarketId}/orders/${activeOrder.id}`), {
-                  items: newItems,
-                  updatedAt: serverTimestamp()
-              });
-              setSubstituteItemIndex(null);
-              setSubstituteSelected(null);
-              setSubstituteSearch('');
-              alert('Simulação: O cliente aprovou a substituição!');
-          } catch(err) {
-              handleFirestoreError(err, OperationType.UPDATE, `supermarkets/${supermarketId}/orders`);
-          }
-      }, 3000);
+  const markMissingDirectly = (itemIndex: number) => flagMissingItem(itemIndex, null);
+  const sendSubstituteSuggestion = () => {
+      if (substituteItemIndex === null || !substituteSelected) return;
+      flagMissingItem(substituteItemIndex, substituteSelected);
   };
 
-  const completePicking = async () => {
+  const onPickPhoto = async (file: File | undefined) => {
+      if (!file) return;
+      setPhotoCompressing(true);
+      try {
+          const dataUrl = await compressImage(file);
+          setPhotoDataUrl(dataUrl);
+      } catch {
+          alert('Não foi possível processar a foto. Tente novamente.');
+      } finally {
+          setPhotoCompressing(false);
+      }
+  };
+
+  const finishPicking = async () => {
       if (!activeOrder) return;
       const hasMissing = activeOrder.items.some((i: any) => i.missing);
+      setPhotoSaving(true);
       try {
           await updateDoc(doc(db, `supermarkets/${supermarketId}/orders/${activeOrder.id}`), {
               status: hasMissing ? 'waiting_substitution' : 'ready',
+              ...(photoDataUrl ? { pickingPhotoUrl: photoDataUrl } : {}),
+              pickingCompletedAt: serverTimestamp(),
               updatedAt: serverTimestamp()
           });
           sendPush(
               activeOrder.pushToken,
               hasMissing ? 'Um item precisa da sua atenção ⚠️' : 'Pedido pronto! 📦',
               hasMissing
-                  ? 'A loja sugeriu substituições. Abra o app para revisar.'
-                  : 'Seu pedido está separado e aguardando o entregador.'
+                  ? 'A separação terminou, mas um item precisa da sua decisão. Abra o app para revisar.'
+                  : 'Seu pedido foi separado e está saindo para entrega!'
           );
-          setActiveOrderId(null);
+          setPhotoSaved(true);
       } catch(err) {
           handleFirestoreError(err, OperationType.UPDATE, `supermarkets/${supermarketId}/orders`);
+      } finally {
+          setPhotoSaving(false);
       }
   };
 
@@ -248,7 +301,10 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
   };
 
   if (activeOrderId && activeOrder) {
-      const isComplete = activeOrder.items.every((i: any) => i.separated || i.missing);
+      const total = activeOrder.items.length;
+      const done = activeOrder.items.filter((i: any) => i.separated || i.missing).length;
+      const pct = total ? Math.round((done / total) * 100) : 0;
+
       return (
           <div className="max-w-xl mx-auto pb-24">
               <div className="flex items-center justify-between mb-6">
@@ -262,6 +318,19 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
                   <Button variant="secondary" onClick={() => setActiveOrderId(null)}>Pausar</Button>
               </div>
 
+              {/* Barra de progresso — atualizada em tempo real conforme os itens são marcados. */}
+              <div className="mb-6">
+                  <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-bold text-slate-600">{done} de {total} itens separados</span>
+                      <span className="text-sm font-bold text-emerald-600">{pct}%</span>
+                  </div>
+                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+                  </div>
+              </div>
+
+              {pickingStep === 'items' ? (
+              <>
               <div className="space-y-4">
                   {activeOrder.items.map((item: any, index: number) => (
                       <div key={index} className={`bg-white rounded-2xl p-5 border-2 shadow-sm transition-all ${item.separated ? 'border-green-500 bg-green-50/30' : item.substituted ? 'border-yellow-400 bg-yellow-50/30' : item.missing ? 'border-red-400 bg-red-50/30' : 'border-slate-200'}`}>
@@ -271,10 +340,18 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
                                   <p className="text-slate-500 font-medium">{item.quantity}x • R$ {item.price.toFixed(2)}</p>
                                   {item.substituted && (
                                       <div className="mt-2 bg-yellow-100 p-3 rounded-lg border border-yellow-300">
-                                          <p className="text-xs text-yellow-800 font-bold mb-1">PRODUTO SUBSTITUÍDO POR:</p>
+                                          <p className="text-xs text-yellow-800 font-bold mb-1">SUGESTÃO ENVIADA AO CLIENTE:</p>
                                           <p className="text-yellow-900 font-bold">{item.substituteName}</p>
                                           <p className="text-yellow-800 font-medium text-sm">R$ {item.substitutePrice.toFixed(2)}</p>
+                                          <p className="text-yellow-700 text-xs mt-1">
+                                              {item.customerDecision === 'pending' || !item.customerDecision ? 'Aguardando o cliente decidir…' : item.customerDecision === 'accepted' ? 'Cliente aceitou a substituição.' : 'Cliente recusou — item removido com desconto.'}
+                                          </p>
                                       </div>
+                                  )}
+                                  {item.missing && !item.substituted && (
+                                      <p className="text-red-700 text-xs mt-1 font-medium">
+                                          {item.customerDecision === 'pending' || !item.customerDecision ? 'Cliente notificado — aguardando decisão.' : 'Cliente já decidiu.'}
+                                      </p>
                                   )}
                               </div>
                               {item.separated && <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><Check className="w-3 h-3"/> Coletado</div>}
@@ -283,13 +360,13 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
                           </div>
 
                           <div className="grid grid-cols-2 gap-3">
-                              <button 
+                              <button
                                   onClick={() => markItem(index, 'separated')}
                                   className={`py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors ${item.separated ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-green-100 hover:text-green-700'}`}
                               >
                                   <Check className="w-5 h-5"/> Separado
                               </button>
-                              <button 
+                              <button
                                   onClick={() => markItem(index, 'missing')}
                                   className={`py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors ${item.missing ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-red-100 hover:text-red-700'}`}
                               >
@@ -300,18 +377,101 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
                   ))}
               </div>
 
-              <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-200 md:left-80 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-20 flex justify-between gap-4">
-                <Button variant="secondary" className="flex-1 max-w-[200px]" onClick={printCommand}>
+              <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-200 md:left-80 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-20 flex justify-center gap-4">
+                <Button variant="secondary" className="flex-1 max-w-[240px]" onClick={printCommand}>
                     <Printer className="w-5 h-5 mr-2"/> Imprimir
                 </Button>
-                <Button 
-                    className="flex-1 bg-green-500 hover:bg-green-600 text-white" 
-                    disabled={!isComplete}
-                    onClick={completePicking}
-                >
-                    Concluir Separação <ArrowRight className="w-5 h-5 ml-2"/>
-                </Button>
               </div>
+              </>
+              ) : (
+              /* --------------------------- Foto da sacola fechada --------------------------- */
+              <div className="bg-white rounded-3xl border-2 border-slate-100 p-6 space-y-5">
+                  {!photoSaved ? (
+                  <>
+                      <div className="text-center">
+                          <Camera className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                          <h3 className="text-xl font-bold text-slate-800">Foto da sacola fechada</h3>
+                          <p className="text-slate-500 text-sm mt-1">Separação concluída! Tire uma foto da sacola já fechada antes de despachar — serve de registro em caso de dúvida sobre a entrega.</p>
+                      </div>
+
+                      <input
+                          ref={photoInputRef}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={(e) => onPickPhoto(e.target.files?.[0])}
+                      />
+
+                      {photoDataUrl ? (
+                          <img src={photoDataUrl} alt="Sacola fechada" className="w-full rounded-2xl border-2 border-slate-100 object-cover max-h-80" />
+                      ) : (
+                          <button
+                              onClick={() => photoInputRef.current?.click()}
+                              disabled={photoCompressing}
+                              className="w-full py-10 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-bold flex flex-col items-center gap-2 hover:border-emerald-400 hover:text-emerald-600 transition-colors"
+                          >
+                              <Camera className="w-8 h-8" />
+                              {photoCompressing ? 'Processando…' : 'Tirar ou escolher foto'}
+                          </button>
+                      )}
+
+                      {photoDataUrl && (
+                          <button onClick={() => photoInputRef.current?.click()} className="text-sm font-bold text-slate-500 hover:text-slate-700">
+                              Trocar foto
+                          </button>
+                      )}
+
+                      <div className="flex flex-col sm:flex-row gap-3">
+                          <Button variant="secondary" className="flex-1" onClick={() => setActiveOrderId(null)}>
+                              Concluir sem foto
+                          </Button>
+                          <Button className="flex-1 bg-green-500 hover:bg-green-600 text-white" disabled={!photoDataUrl || photoSaving} onClick={finishPicking}>
+                              {photoSaving ? 'Enviando…' : 'Concluir separação'} <ArrowRight className="w-5 h-5 ml-2"/>
+                          </Button>
+                      </div>
+                  </>
+                  ) : (
+                  <>
+                      <div className="text-center">
+                          <PartyPopper className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                          <h3 className="text-xl font-bold text-slate-800">Separação concluída!</h3>
+                          <p className="text-slate-500 text-sm mt-1">
+                              O cliente já foi avisado pelo app. Nesta fase inicial, envie a foto pelo WhatsApp manualmente:
+                          </p>
+                      </div>
+
+                      {photoDataUrl && (
+                          <img src={photoDataUrl} alt="Sacola fechada" className="w-full rounded-2xl border-2 border-slate-100 object-cover max-h-80" />
+                      )}
+
+                      <div className="flex flex-col sm:flex-row gap-3">
+                          {photoDataUrl && (
+                              <a
+                                  href={photoDataUrl}
+                                  download={`sacola-pedido-${activeOrder.id.slice(0, 6)}.jpg`}
+                                  className="flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-xl font-bold border-2 border-slate-200 text-slate-600 hover:bg-slate-50"
+                              >
+                                  <Download className="w-5 h-5" /> Baixar foto
+                              </a>
+                          )}
+                          <a
+                              href={waLink(activeOrder.customerPhone, 'Seu pedido foi separado e está saindo para entrega! 📦 (segue a foto da sacola em anexo)')}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-xl font-bold bg-[#25D366] text-white hover:bg-[#1DAE54]"
+                          >
+                              <MessageCircle className="w-5 h-5" /> Abrir WhatsApp
+                          </a>
+                      </div>
+
+                      <Button className="w-full" onClick={() => setActiveOrderId(null)}>
+                          Voltar para a fila
+                      </Button>
+                  </>
+                  )}
+              </div>
+              )}
 
               {substituteItemIndex !== null && (
                   <div className="fixed inset-0 bg-slate-800/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -322,71 +482,57 @@ export default function OrderPicker({ supermarketId, products }: OrderPickerProp
                                   <X className="w-6 h-6"/>
                               </button>
                           </div>
-                          
+
                           <div className="flex-1 overflow-y-auto p-6 space-y-6">
                               <div>
                                   <p className="text-sm font-bold text-slate-500 mb-1">PRODUTO EM FALTA:</p>
                                   <p className="text-lg font-bold text-slate-800">{activeOrder.items[substituteItemIndex].name}</p>
                               </div>
 
-                              {!substituteLoading ? (
-                                  <>
-                                      <div className="relative">
-                                          <Search className="w-5 h-5 absolute left-3 top-3.5 text-slate-400" />
-                                          <input 
-                                              type="text" 
-                                              placeholder="Buscar produto substituto..." 
-                                              className="w-full pl-10 pr-4 py-3 bg-white border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none"
-                                              value={substituteSearch}
-                                              onChange={e => setSubstituteSearch(e.target.value)}
-                                          />
-                                      </div>
+                              <div className="relative">
+                                  <Search className="w-5 h-5 absolute left-3 top-3.5 text-slate-400" />
+                                  <input
+                                      type="text"
+                                      placeholder="Buscar produto substituto..."
+                                      className="w-full pl-10 pr-4 py-3 bg-white border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                                      value={substituteSearch}
+                                      onChange={e => setSubstituteSearch(e.target.value)}
+                                  />
+                              </div>
 
-                                      <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                                          {products.filter(p => p.name.toLowerCase().includes(substituteSearch.toLowerCase())).slice(0, 5).map(pr => (
-                                              <div 
-                                                  key={pr.id} 
-                                                  onClick={() => setSubstituteSelected(pr)} 
-                                                  className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-center gap-3 ${substituteSelected?.id === pr.id ? 'border-blue-500 bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
-                                              >
-                                                  {pr.imageUrl ? (
-                                                      <img src={pr.imageUrl} alt={pr.name} className="w-10 h-10 object-contain rounded-lg bg-white" />
-                                                  ) : (
-                                                      <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
-                                                          <ShoppingBag className="w-5 h-5 text-slate-400" />
-                                                      </div>
-                                                  )}
-                                                  <div>
-                                                      <p className="font-bold text-slate-800">{pr.name}</p>
-                                                      <p className="text-sm text-slate-500">R$ {pr.price.toFixed(2)}</p>
-                                                  </div>
+                              <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                                  {products.filter(p => p.name.toLowerCase().includes(substituteSearch.toLowerCase())).slice(0, 5).map(pr => (
+                                      <div
+                                          key={pr.id}
+                                          onClick={() => setSubstituteSelected(pr)}
+                                          className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-center gap-3 ${substituteSelected?.id === pr.id ? 'border-blue-500 bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
+                                      >
+                                          {pr.imageUrl ? (
+                                              <img src={pr.imageUrl} alt={pr.name} className="w-10 h-10 object-contain rounded-lg bg-white" />
+                                          ) : (
+                                              <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                                                  <ShoppingBag className="w-5 h-5 text-slate-400" />
                                               </div>
-                                          ))}
-                                          {products.filter(p => p.name.toLowerCase().includes(substituteSearch.toLowerCase())).length === 0 && (
-                                              <p className="text-center text-slate-500 py-4">Nenhum produto encontrado.</p>
                                           )}
+                                          <div>
+                                              <p className="font-bold text-slate-800">{pr.name}</p>
+                                              <p className="text-sm text-slate-500">R$ {pr.price.toFixed(2)}</p>
+                                          </div>
                                       </div>
-                                  </>
-                              ) : (
-                                  <div className="flex flex-col items-center justify-center py-12 text-blue-500">
-                                      <Loader2 className="w-12 h-12 animate-spin mb-4" />
-                                      <p className="font-bold text-lg text-slate-800">Aguardando Cliente...</p>
-                                      <p className="text-slate-500 text-center mt-2">O cliente está revisando a sugestão de substituição no aplicativo.</p>
-                                  </div>
-                              )}
+                                  ))}
+                                  {products.filter(p => p.name.toLowerCase().includes(substituteSearch.toLowerCase())).length === 0 && (
+                                      <p className="text-center text-slate-500 py-4">Nenhum produto encontrado.</p>
+                                  )}
+                              </div>
                           </div>
-                          
+
                           <div className="p-6 border-t border-slate-100 bg-slate-50 gap-3 flex flex-col sm:flex-row">
-                              {!substituteLoading ? (
-                                  <>
-                                      <Button variant="secondary" className="flex-1 whitespace-nowrap" onClick={() => markMissingDirectly(substituteItemIndex)}>
-                                          Marcar sem substituto
-                                      </Button>
-                                      <Button className="flex-1" disabled={!substituteSelected} onClick={sendSubstituteSuggestion}>
-                                          Enviar Sugestão
-                                      </Button>
-                                  </>
-                              ) : null}
+                              <Button variant="secondary" className="flex-1 whitespace-nowrap" onClick={() => markMissingDirectly(substituteItemIndex)}>
+                                  Marcar sem substituto
+                              </Button>
+                              <Button className="flex-1" disabled={!substituteSelected} onClick={sendSubstituteSuggestion}>
+                                  Enviar Sugestão
+                              </Button>
                           </div>
                       </div>
                   </div>
